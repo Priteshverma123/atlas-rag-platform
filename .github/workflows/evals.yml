@@ -1,0 +1,38 @@
+# Path-filtered, cost-bounded quality gate. The full stack runs on the deterministic mock LLM
+# (no API keys, no spend), so every relevant PR measures retrieval + citation plumbing end to end.
+# The nightly schedule can run the same suite against real models using repository secrets.
+name: evals
+on:
+  pull_request:
+    paths: ["src/atlas/retrieval/**", "src/atlas/generation/**", "src/atlas/ingestion/**",
+            "src/atlas/embeddings/**", "config/**", "evals/**"]
+  schedule: [{cron: "0 3 * * *"}]
+permissions: {contents: read, pull-requests: write}
+
+jobs:
+  eval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: astral-sh/setup-uv@887a942a15af3a7626099df99e897a18d9e5ab3a  # v5.1.0
+        with: {python-version: "3.12"}
+      - name: configure
+        run: |
+          cp .env.example .env
+          echo "ATLAS_CONTEXTUAL_ENRICHMENT=false" >> .env
+      - run: docker compose up -d --build --wait api worker-ingest worker-light
+      - name: bootstrap tenant
+        run: |
+          KEY=$(curl -fsS -X POST localhost:8000/v1/admin/bootstrap \
+            -H 'x-bootstrap-token: change-me-bootstrap' -H 'content-type: application/json' \
+            -d '{"tenant_name":"ci"}' | jq -r .api_key)
+          echo "KEY=$KEY" >> "$GITHUB_ENV"
+      - run: uv sync --frozen
+      - run: uv run atlas-eval run --dataset evals/datasets/smoke.jsonl --corpus evals/corpus --key "$KEY"
+      - run: uv run atlas-eval gate --report evals/reports/latest.json --baseline evals/baselines/smoke.json | tee gate.md
+      - if: always() && github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@331f8f5b4215f0445d3c07b4967662a32a2d3e31  # v2.9.0
+        with: {path: gate.md}
+      - if: failure()
+        run: docker compose logs --tail=200

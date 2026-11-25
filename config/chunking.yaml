@@ -1,0 +1,15 @@
+# Chunking templates (RAGFlow-style "per document type" chunking). A collection picks one with
+# chunking.template, or "auto" picks by MIME type. Token counts are cl100k approximations.
+templates:
+  default:   {target_tokens: 400, max_tokens: 650, overlap_tokens: 50, min_tokens: 40, parent_tokens: 1500}
+  report:    {target_tokens: 450, max_tokens: 700, overlap_tokens: 60, min_tokens: 50, parent_tokens: 2000}
+  legal:     {target_tokens: 300, max_tokens: 500, overlap_tokens: 60, min_tokens: 40, parent_tokens: 1200}
+  faq:       {target_tokens: 200, max_tokens: 350, overlap_tokens: 0,  min_tokens: 20, parent_tokens: 800}
+  slides:    {target_tokens: 250, max_tokens: 450, overlap_tokens: 0,  min_tokens: 10, parent_tokens: 1000}
+  web:       {target_tokens: 350, max_tokens: 600, overlap_tokens: 40, min_tokens: 30, parent_tokens: 1500}
+auto:
+  application/pdf: report
+  application/vnd.openxmlformats-officedocument.presentationml.presentation: slides
+  text/html: web
+  text/markdown: default
+  text/plain: default

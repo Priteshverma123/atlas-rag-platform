@@ -1,0 +1,107 @@
+# atlas-gateway routing config. ${VAR:-default} is expanded from the environment.
+# Providers without credentials are pruned at startup; a route with no usable targets falls back
+# to `fallback_when_unavailable` (the mock), so the whole stack runs with zero API keys.
+#
+# Model ids: Claude ids are current as of 2026-11. OpenAI/Gemini/xAI ids are examples - set the
+# ones your account has access to. Prices live in pricing.yaml.
+
+fallback_when_unavailable: mock/atlas-mock
+
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ATLAS_ANTHROPIC_API_KEY
+    server_fallbacks: true      # Anthropic server-side refusal fallbacks (beta)
+  openai:
+    type: openai_compat
+    base_url: https://api.openai.com/v1
+    api_key_env: ATLAS_OPENAI_API_KEY
+    max_tokens_param: max_completion_tokens
+    supports_temperature: false
+  gemini:
+    type: openai_compat
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: ATLAS_GEMINI_API_KEY
+  xai:
+    type: openai_compat
+    base_url: https://api.x.ai/v1
+    api_key_env: ATLAS_XAI_API_KEY
+  ollama:
+    type: openai_compat
+    base_url: ${ATLAS_OLLAMA_BASE_URL:-http://ollama:11434/v1}
+    api_key_env: ATLAS_OLLAMA_ENABLED   # set to any value when the `ollama` profile is up
+  mock:
+    type: openai_compat
+    base_url: ${ATLAS_MOCK_BASE_URL:-http://mockllm:8099/v1}
+    api_key: mock
+
+defaults: &defaults
+  strategy: {target: mock/atlas-mock}
+  retry_policy: {rate_limit: 2, overloaded: 2, timeout: 1, connection: 2, unknown: 1}
+  cooldown: {allowed_fails: 3, window_s: 60, cooldown_s: 30}
+  timeouts: {total_s: 60, ttft_s: 8}
+
+routes:
+  # Cheap, fast tier: query routing, condensation, memory extraction, contextual enrichment.
+  fast:
+    <<: *defaults
+    strategy:
+      mode: fallback
+      targets:
+        - target: anthropic/claude-haiku-5-5
+          params: {effort: low}
+        - target: gemini/gemini-2.5-flash
+        - target: openai/gpt-5-mini
+        - target: ollama/llama3.2
+    timeouts: {total_s: 20, ttft_s: 4}
+    cache: {exact: true, exact_ttl_s: 86400}
+    default_max_tokens: 512
+
+  # Standard tier: grounded answers.
+  answer:
+    <<: *defaults
+    strategy:
+      mode: fallback
+      targets:
+        - mode: loadbalance
+          targets:
+            - {target: anthropic/claude-sonnet-5-5, weight: 3, params: {effort: medium}}
+            - {target: openai/gpt-5-mini, weight: 1}
+        - target: xai/grok-3-mini
+        - target: ollama/llama3.2
+    context_window_fallbacks: [anthropic/claude-opus-5-5]
+    content_policy_fallbacks: [openai/gpt-5-mini]
+    cache: {exact: true, exact_ttl_s: 3600}
+    default_max_tokens: 1024
+    downgrade_route: fast
+
+  # Deep tier: research planning/writing.
+  deep:
+    <<: *defaults
+    strategy:
+      mode: fallback
+      targets:
+        - target: anthropic/claude-opus-5-5
+          params: {effort: high}
+        - target: anthropic/claude-sonnet-5-5
+        - target: ollama/llama3.2
+    timeouts: {total_s: 180, ttft_s: 30}
+    default_max_tokens: 4096
+    downgrade_route: answer
+
+  # LLM-as-judge for evals (pinned: judges must not silently change between runs).
+  judge:
+    <<: *defaults
+    strategy: {target: anthropic/claude-sonnet-5-5, params: {effort: low}}
+    cache: {exact: true, exact_ttl_s: 604800}
+
+  # Generic chat for direct gateway users, with semantic caching enabled.
+  chat:
+    <<: *defaults
+    strategy:
+      mode: latency
+      targets:
+        - target: anthropic/claude-haiku-5-5
+        - target: gemini/gemini-2.5-flash
+        - target: openai/gpt-5-mini
+    cache: {exact: true, semantic: true, semantic_threshold: 0.95, semantic_ttl_s: 3600}

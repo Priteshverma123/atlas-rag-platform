@@ -1,0 +1,28 @@
+{
+  "title": "Atlas: LLM Gateway",
+  "uid": "atlas-gateway",
+  "schemaVersion": 39,
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "30s",
+  "panels": [
+    {"type": "timeseries", "title": "Requests/s by route & cache", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "targets": [{"expr": "sum by (route, cache) (rate(atlas_gateway_requests_total[5m]))"}]},
+    {"type": "timeseries", "title": "Latency p50 / p95 / p99 (s)", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "targets": [
+       {"expr": "histogram_quantile(0.5, sum by (le) (rate(atlas_gateway_latency_seconds_bucket[5m])))", "legendFormat": "p50"},
+       {"expr": "histogram_quantile(0.95, sum by (le) (rate(atlas_gateway_latency_seconds_bucket[5m])))", "legendFormat": "p95"},
+       {"expr": "histogram_quantile(0.99, sum by (le) (rate(atlas_gateway_latency_seconds_bucket[5m])))", "legendFormat": "p99"}]},
+    {"type": "timeseries", "title": "Time to first token p95 (s)", "gridPos": {"x": 0, "y": 8, "w": 8, "h": 8},
+     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, route) (rate(atlas_gateway_ttft_seconds_bucket[5m])))"}]},
+    {"type": "timeseries", "title": "Gateway overhead p99 (s)", "gridPos": {"x": 8, "y": 8, "w": 8, "h": 8},
+     "targets": [{"expr": "histogram_quantile(0.99, sum by (le) (rate(atlas_gateway_overhead_seconds_bucket[5m])))"}]},
+    {"type": "stat", "title": "Spend (USD, 24h) / saved by caches", "gridPos": {"x": 16, "y": 8, "w": 8, "h": 8},
+     "targets": [{"expr": "sum(increase(atlas_gateway_cost_usd_total[24h]))", "legendFormat": "spent"},
+                 {"expr": "sum(increase(atlas_gateway_saved_usd_total[24h]))", "legendFormat": "saved"}]},
+    {"type": "timeseries", "title": "Tokens/s by bucket", "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+     "targets": [{"expr": "sum by (bucket) (rate(atlas_gateway_tokens_total[5m]))"}]},
+    {"type": "timeseries", "title": "Upstream attempts by outcome / cooldowns", "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+     "targets": [{"expr": "sum by (provider, outcome) (rate(atlas_gateway_attempts_total[5m]))"},
+                 {"expr": "sum by (target) (increase(atlas_gateway_cooldowns_total[15m]))", "legendFormat": "cooldown {{target}}"}]}
+  ]
+}

@@ -1,0 +1,10 @@
+.venv
+.git
+**/__pycache__
+.env
+evals/reports
+docs
+tests
+loadtest
+deploy/helm
+*.log

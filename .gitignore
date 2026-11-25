@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+evals/reports/*
+!evals/reports/.gitkeep
+*.log
+
+# node / build output
+node_modules/
+console/dist/
+*.tsbuildinfo
+__pycache__/
+.env.*
+!.env.example

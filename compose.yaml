@@ -1,0 +1,303 @@
+# Atlas: full stack in Docker.
+#   docker compose up -d                              # core stack (mock LLM if no API keys)
+#   docker compose --profile ollama up -d             # + fully local LLM
+#   docker compose --profile observability up -d      # + OTel collector, Jaeger, Prometheus, Grafana
+#   docker compose --profile docling build            # worker image with Docling parsing
+# Infra ports bind to 127.0.0.1 only. Images are pinned; bump deliberately.
+
+x-app: &app
+  image: atlas:${ATLAS_VERSION:-dev}
+  pull_policy: never          # built locally by the `api` service below
+  env_file: [.env]
+  environment: &app-env
+    ATLAS_DATABASE_URL: postgresql+asyncpg://atlas_app:${ATLAS_APP_DB_PASSWORD:-atlas_app}@postgres:5432/atlas
+    ATLAS_DATABASE_ADMIN_URL: postgresql+asyncpg://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
+    ATLAS_REDIS_URL: redis://redis:6379/0
+    ATLAS_QDRANT_URL: http://qdrant:6333
+    ATLAS_S3_ENDPOINT: minio:9000
+    ATLAS_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-atlas}
+    ATLAS_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-atlas-secret}
+    ATLAS_EMBED_URL: http://tei-embed:80
+    ATLAS_RERANK_URL: http://tei-rerank:80
+    ATLAS_GATEWAY_URL: http://gateway:8090
+    ATLAS_MOCK_BASE_URL: http://mockllm:8099/v1
+    # Tracing → Pulse (self-hosted observability). Content capture is PII-redacted; disable in prod.
+    ATLAS_OTLP_ENDPOINT: ${ATLAS_OTLP_ENDPOINT:-http://pulse:8100}
+    ATLAS_OTLP_API_KEY: ${PULSE_ATLAS_KEY:-pk-atlas-dev}
+    ATLAS_CAPTURE_CONTENT: ${ATLAS_CAPTURE_CONTENT:-true}
+    # Real LLM providers stay OFF until explicitly enabled (keys in .env are ignored otherwise).
+    ATLAS_LLM_LIVE: ${ATLAS_LLM_LIVE:-false}
+    ATLAS_DEMO_MODE: ${ATLAS_DEMO_MODE:-true}
+    ATLAS_DEMO_CORPUS: /app/evals/corpus
+  restart: unless-stopped
+  depends_on: &app-deps
+    migrate: {condition: service_completed_successfully}
+    redis: {condition: service_healthy}
+    qdrant: {condition: service_healthy}
+    minio: {condition: service_healthy}
+
+services:
+  # ------------------------------------------------------------------ data plane
+  postgres:
+    image: ${POSTGRES_IMAGE:-public.ecr.aws/docker/library/postgres:16-alpine}
+    environment:
+      POSTGRES_DB: atlas
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atlas}
+      ATLAS_APP_DB_PASSWORD: ${ATLAS_APP_DB_PASSWORD:-atlas_app}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:7.4-alpine}
+    # noeviction: Redis holds job queues and rate-limit state, which must never be evicted.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+    volumes: [redisdata:/data]
+    ports: ["127.0.0.1:${REDIS_HOST_PORT:-56379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  qdrant:
+    image: ${QDRANT_IMAGE:-ghcr.io/qdrant/qdrant/qdrant:v1.12.5}
+    volumes: [qdrantdata:/qdrant/storage]
+    ports: ["127.0.0.1:${QDRANT_HOST_PORT:-56333}:6333"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: ${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
+    command: ["server", "/data", "--console-address", ":9001"]
+    user: "0:0"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-atlas}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-atlas-secret}
+    volumes: [miniodata:/data]
+    ports: ["127.0.0.1:${MINIO_HOST_PORT:-59000}:9000", "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-59001}:9001"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ model servers (TEI, CPU)
+  tei-embed:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    command: ["--model-id", "${ATLAS_EMBED_MODEL:-BAAI/bge-small-en-v1.5}", "--max-batch-tokens", "16384",
+              "--max-client-batch-size", "64", "--auto-truncate"]
+    volumes: [hfcache:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/80' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+    restart: unless-stopped
+
+  tei-rerank:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    command: ["--model-id", "${ATLAS_RERANK_MODEL:-BAAI/bge-reranker-base}", "--auto-truncate"]
+    volumes: [hfcache:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/80' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ one-shot migration
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  # ------------------------------------------------------------------ application
+  mockllm:
+    <<: *app
+    command: ["uvicorn", "atlas.mockllm.app:app", "--host", "0.0.0.0", "--port", "8099"]
+    depends_on: {}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8099/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    <<: *app
+    command: ["uvicorn", "atlas.gateway.app:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "2"]
+    ports: ["127.0.0.1:8090:8090"]
+    depends_on:
+      <<: *app-deps
+      tei-embed: {condition: service_healthy}
+      mockllm: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8090/health/ready || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources: {limits: {memory: 1g}}
+
+  api:
+    <<: *app
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args: {WITH_DOCLING: "${WITH_DOCLING:-0}"}
+    pull_policy: build
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      <<: *app-deps
+      gateway: {condition: service_healthy}
+      tei-embed: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8000/health/ready || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources: {limits: {memory: 1g}}
+
+  worker-ingest:
+    <<: *app
+    command: ["arq", "atlas.workers.main.IngestWorker"]
+    depends_on:
+      <<: *app-deps
+      tei-embed: {condition: service_healthy}
+    deploy:
+      # parsers are an attack surface and can OOM on hostile files: cap memory per worker
+      resources: {limits: {memory: 2g}}
+
+  worker-light:
+    <<: *app
+    command: ["arq", "atlas.workers.main.LightWorker"]
+    depends_on:
+      <<: *app-deps
+      gateway: {condition: service_healthy}
+
+  worker-research:
+    <<: *app
+    command: ["arq", "atlas.workers.main.ResearchWorker"]
+    depends_on:
+      <<: *app-deps
+      gateway: {condition: service_healthy}
+
+  mcp:
+    <<: *app
+    command: ["python", "-m", "atlas.mcp_server.server"]
+    environment:
+      <<: *app-env
+      ATLAS_MCP_API_URL: http://api:8000
+      ATLAS_MCP_API_KEY: ${ATLAS_MCP_API_KEY:-}
+      ATLAS_MCP_COLLECTIONS: ${ATLAS_MCP_COLLECTIONS:-}
+    ports: ["127.0.0.1:8765:8765"]
+    depends_on:
+      api: {condition: service_healthy}
+
+
+  # ------------------------------------------------------------------ observability (Pulse)
+  pulse:
+    <<: *app
+    command: ["uvicorn", "pulse.server.app:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
+    environment:
+      PULSE_DATABASE_URL: postgresql+asyncpg://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/pulse
+      PULSE_REDIS_URL: redis://redis:6379/1
+      PULSE_PROJECTS: atlas:${PULSE_ATLAS_KEY:-pk-atlas-dev}
+      PULSE_RETENTION_DAYS: "30"
+    ports: ["127.0.0.1:8100:8100"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8100/docs >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # ------------------------------------------------------------------ web console
+  console:
+    build: {context: ./console}
+    image: atlas-console:${ATLAS_VERSION:-dev}
+    ports: ["127.0.0.1:3000:8080"]
+    depends_on:
+      api: {condition: service_healthy}
+      pulse: {condition: service_healthy}
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ optional: local LLM
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:0.5.4
+    volumes: [ollamadata:/root/.ollama]
+    ports: ["127.0.0.1:11434:11434"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  ollama-pull:
+    profiles: [ollama]
+    image: ollama/ollama:0.5.4
+    environment: {OLLAMA_HOST: "http://ollama:11434"}
+    entrypoint: ["ollama", "pull", "${ATLAS_OLLAMA_MODEL:-llama3.2}"]
+    depends_on: {ollama: {condition: service_healthy}}
+    restart: "no"
+
+  # ------------------------------------------------------------------ optional: observability
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./deploy/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro"]
+    ports: ["127.0.0.1:4318:4318"]
+
+  jaeger:
+    profiles: [observability]
+    image: jaegertracing/all-in-one:1.64.0
+    environment: {COLLECTOR_OTLP_ENABLED: "true"}
+    ports: ["127.0.0.1:16686:16686"]
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.0.1
+    volumes: ["./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["127.0.0.1:9090:9090"]
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["127.0.0.1:3001:3000"]
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  qdrantdata: {}
+  miniodata: {}
+  hfcache: {}
+  ollamadata: {}

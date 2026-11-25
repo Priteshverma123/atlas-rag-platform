@@ -1,0 +1,3 @@
+{
+  "note": "Replace with evals/reports/latest.json from the first green run (mock LLM). The gate skips metrics missing here."
+}

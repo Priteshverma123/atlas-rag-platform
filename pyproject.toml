@@ -1,0 +1,100 @@
+[project]
+name = "atlas"
+version = "0.1.0"
+description = "Atlas: production-grade multi-tenant RAG platform with a multi-provider LLM gateway"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = [
+    # web
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+    "sse-starlette>=2.1",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "orjson>=3.10",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    # data
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "psycopg[binary,pool]>=3.2",
+    "redis>=5.2",
+    "arq>=0.26",
+    "qdrant-client>=1.12,<1.13",  # keep within one minor of the pinned server (v1.12)
+    "minio>=7.2",
+    # parsing / text
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "beautifulsoup4>=4.12",
+    "trafilatura>=1.12",
+    "snowballstemmer>=2.2",
+    "tiktoken>=0.8",
+    # llm
+    "openai>=1.55",
+    "anthropic>=0.40",
+    "langgraph>=0.2.60",
+    "langgraph-checkpoint-postgres>=2.0",
+    "mcp>=1.2,<2",  # v2 renamed FastMCP → MCPServer
+    # observability
+    "structlog>=24.4",
+    "opentelemetry-sdk>=1.28",
+    "opentelemetry-exporter-otlp-proto-http>=1.28",
+    "opentelemetry-instrumentation-fastapi>=0.49b0",
+    "opentelemetry-instrumentation-httpx>=0.49b0",
+    "prometheus-client>=0.21",
+]
+
+# Docling (layout-aware PDF parsing, pulls PyTorch) is installed only in the worker image when
+# built with --build-arg WITH_DOCLING=1, keeping the lock file and the default images small.
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "respx>=0.21",
+    "fakeredis[lua]>=2.26",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-pyyaml",
+]
+
+[project.scripts]
+atlas-eval = "atlas.evals.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/atlas", "src/pulse"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "RUF", "SIM", "PT"]
+ignore = ["S101", "S311", "RUF001", "RUF002", "RUF003", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PT011"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+files = ["src/atlas/gateway", "src/atlas/retrieval", "src/atlas/common"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = ["integration: needs the docker compose stack running"]
+addopts = "-m 'not integration'"

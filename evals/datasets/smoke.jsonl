@@ -1,0 +1,25 @@
+{"id": "q01", "question": "What does error code E-1042 mean on the KD-200?", "category": "exact_term", "evidence": ["Compass interference detected"], "reference": "E-1042 means compass interference was detected; move at least 10 metres away from metal structures and recalibrate the compass."}
+{"id": "q02", "question": "What should an operator do when the drone shows E-2210?", "category": "exact_term", "evidence": ["Land immediately and replace the KB-9 battery pack"], "reference": "Land immediately and replace the KB-9 battery pack."}
+{"id": "q03", "question": "How long can the KD-200 fly on one battery?", "category": "lookup", "evidence": ["42 minute maximum flight time"], "reference": "Up to 42 minutes."}
+{"id": "q04", "question": "What is the daily meal allowance in London?", "category": "lookup", "evidence": ["110 USD in high-cost cities"], "reference": "110 USD per day, because London is a high-cost city."}
+{"id": "q05", "question": "Which class can I fly for a 7 hour flight?", "category": "lookup", "evidence": ["Premium economy is allowed for flights of 6 hours or longer"], "reference": "Premium economy."}
+{"id": "q06", "question": "Within how many days must expense reports be submitted?", "category": "lookup", "evidence": ["within 30 days of the trip ending"], "reference": "Within 30 days of the trip ending."}
+{"id": "q07", "question": "How quickly must a security incident be reported?", "category": "lookup", "evidence": ["within 4 hours of discovery"], "reference": "Within 4 hours of discovery."}
+{"id": "q08", "question": "What is the minimum password length?", "category": "lookup", "evidence": ["at least 14 characters long"], "reference": "14 characters."}
+{"id": "q09", "question": "What was Kestrel's revenue in Q3 2026?", "category": "lookup", "evidence": ["48.6 million USD"], "reference": "48.6 million USD, up 22 percent year over year."}
+{"id": "q10", "question": "How much revenue did software subscriptions generate in Q3 2026?", "category": "table", "evidence": ["12.4 million USD"], "reference": "12.4 million USD."}
+{"id": "q11", "question": "Which segment grew the slowest in Q3 2026?", "category": "table", "evidence": ["7.1 million USD | 2%"], "reference": "Services, which grew 2 percent."}
+{"id": "q12", "question": "How many weeks of parental leave do secondary caregivers get?", "category": "lookup", "evidence": ["Secondary caregivers receive 6 weeks"], "reference": "6 weeks of fully paid parental leave."}
+{"id": "q13", "question": "How many unused vacation days can be carried over?", "category": "lookup", "evidence": ["Up to 5 unused days can be carried over"], "reference": "Up to 5 days, to be used by 31 March."}
+{"id": "q14", "question": "Where may restricted data be stored?", "category": "lookup", "evidence": ["only be stored in the EU-Frankfurt region"], "reference": "Only in the EU-Frankfurt region."}
+{"id": "q15", "question": "How often must KD-200 propellers be replaced?", "category": "lookup", "evidence": ["every 120 flight hours"], "reference": "Every 120 flight hours or after visible damage."}
+{"id": "q16", "question": "What did firmware 3.8.1 add?", "category": "exact_term", "evidence": ["obstacle avoidance at speeds up to 12 m/s"], "reference": "Obstacle avoidance at speeds up to 12 m/s."}
+{"id": "q17", "question": "What is the hotel cap in Tokyo compared with a standard city?", "category": "multi_hop", "evidence": ["340 USD per night in high-cost cities", "220 USD per night in standard cities"], "reference": "340 USD per night in Tokyo versus 220 USD in standard cities."}
+{"id": "q18", "question": "How many employees joined between the end of Q2 and the end of Q3 2026?", "category": "multi_hop", "evidence": ["612 employees", "540 at the end of Q2 2026"], "reference": "72 employees (from 540 to 612)."}
+{"id": "q19", "question": "Who owns the information security policy and what must administrators use to log in?", "category": "multi_hop", "evidence": ["Dana Okafor", "Hardware security keys are required for administrators"], "reference": "The CISO Dana Okafor; administrators must use hardware security keys."}
+{"id": "q20", "question": "What must engineers complete before visiting the test hangar?", "category": "lookup", "evidence": ["KD-200 safety briefing"], "reference": "The KD-200 safety briefing."}
+{"id": "q21", "question": "When is the KD-300 launching?", "category": "lookup", "evidence": ["February 2027"], "reference": "February 2027."}
+{"id": "q22", "question": "What are the main business risks mentioned in the quarterly report?", "category": "global", "evidence": ["supply constraints for flight controllers"], "reference": "Supply constraints for flight controllers and new EU drone regulations from July 2027."}
+{"id": "q23", "question": "What is the company's policy on remote work from abroad?", "category": "unanswerable", "evidence": [], "reference": ""}
+{"id": "q24", "question": "What is the price of the KD-200?", "category": "unanswerable", "evidence": [], "reference": ""}
+{"id": "q25", "question": "Who is the CEO of Kestrel Dynamics?", "category": "unanswerable", "evidence": [], "reference": ""}
